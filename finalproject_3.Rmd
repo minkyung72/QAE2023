@@ -1,0 +1,112 @@
+---
+title: "Emission Price"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(jsonlite)
+library(tidyverse)
+library(lubridate)
+library(KeyboardSimulator)
+library(RSelenium)
+library(dplyr)
+library(stringr)
+library(rvest)
+library(wdman)
+library(httr)
+library(readr)
+library(data.table)
+library(bizdays)
+library(readxl)
+library(glue)
+options(encoding = "UTF-8")
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Emission Price (Daily)
+
+```{r}
+
+
+
+```
+
+### Emission (yearly)
+
+```{r}
+
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### News about "emission"
+
+```{r}
+searchUrl <- "https://openapi.naver.com/v1/search/news.json"
+client_id <- "M4g9rW2aSU0zNVXbp0Ve"
+client_secret <- "gfr6xh20HF"
+
+search.word <- "emission" %>% 
+  enc2utf8() %>% 
+  URLencode()
+
+url <- str_c(searchUrl, 
+             "?query=", search.word, 
+             "&display=50")
+
+res <- GET(url, 
+           add_headers("X-Naver-Client-Id"=client_id, 
+                       "X-Naver-Client-Secret"=client_secret))
+doc <- toString(res)
+return <- fromJSON(doc)
+tab <- return$items
+tab2 <- tab$title
+
+head(tab2)
+
+```
+
+### Papers about "emission" 
+
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+URL <- "https://scholar.google.com/scholar?hl=en&as_sdt=0%2C5&q=%EB%B0%B0%EC%B6%9C%EA%B6%8C&btnG="
+res <- read_html(URL)
+
+# title
+pattern <- ".gs_rt a"
+title <- res %>% 
+  html_nodes(pattern) %>% 
+  html_text()
+title
+
+# journal
+pattern <- ".gs_a"
+citation <- res %>% 
+  html_nodes(pattern) %>% 
+  html_text()
+citation
+
+# link
+pattern <- ".gs_rt a"
+link <- res %>% 
+  html_nodes(pattern) %>% 
+  html_attr("href") %>% 
+  str_c("https://scholar.google.com", .)
+link
+
+table <- cbind(title, citation, link)
+head(table)
+
+```
+

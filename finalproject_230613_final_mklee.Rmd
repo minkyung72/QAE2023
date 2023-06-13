@@ -1,0 +1,556 @@
+---
+title: "Untitled"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(RSelenium)
+library(XML)
+library(rvest)
+library(stringr)
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(httr)
+library(readxl)
+library(writexl)
+library(jsonlite)
+library(kableExtra)
+library(DT)
+library(readr)
+library(xml2)
+library(ggplot2)
+library(plotly)
+library(dygraphs)
+library(quantmod)
+library(shiny)
+library(tigris)
+library(highcharter)
+library(netstat)
+
+free.port <- netstat::free_port(random=TRUE)
+
+rD <- rsDriver(browser="firefox", port = free.port, chromever=NULL)
+remDr <- rD$client
+
+now <- Sys.time()
+today <- format(Sys.time(), "%Y%m%d")
+
+## 팟빵 에피소드 수집 함수 선언
+podbbang <- function(channel.id) {
+  
+  URL <- str_c("http://www.podbbang.com/_m_api/podcasts/", channel.id, "/episodes?offset=0&sort=pubdate:desc&episode_id=0&limit=8&with=summary&cache=0")
+  
+  txt <- readLines(URL, warn=FALSE)
+  
+  df <- fromJSON(txt)$data %>% 
+    select(published_at, title, duration)
+  
+  names(df) <- c("date", "title", "duration")
+  
+  df$date <- df$date %>% 
+    as.Date() %>% 
+    format("%y.%m.%d")
+  
+  df$title <- df$title %>% 
+    str_remove_all("^[0-9]{2}/[0-9]{2} -") %>% 
+    str_trim()
+  
+  return(df)
+  
+}
+
+
+## Naver News Keyword Search
+naver.news.api.search <-function(keyword) {
+  
+searchUrl <- "https://openapi.naver.com/v1/search/news.xml"
+client_id <- "M4g9rW2aSU0zNVXbp0Ve"
+client_secret <- "gfr6xh20HF"
+
+search.word <- keyword
+query <- search.word %>% 
+  enc2utf8() %>% 
+  URLencode()
+
+url <- str_c(searchUrl, "?query=", query, "&display=20")
+
+res <- GET(url, 
+           add_headers("X-Naver-Client-Id"=client_id, 
+                       "X-Naver-Client-Secret"=client_secret))
+doc <- toString(res)
+
+xmlFile <- xmlParse(doc)
+xmlRoot(xmlFile)
+df <- xmlToDataFrame(getNodeSet(xmlFile, "//item"), stringsAsFactors = FALSE)
+  
+}
+
+# Emission Price
+setwd("C:/Users/Minkyung Lee/Desktop/QAE/final")
+
+emission.price.down <-function(todate) {
+gen_otp_url = 'https://ets.krx.co.kr/contents/COM/GenerateOTP.jspx'
+gen_otp_data = list(
+    name= "fileDown",
+    filetype= "csv",
+    url= "ETS/03/03010000/ets03010000_05",
+    isu_cd= "KRD050032204",
+    fromdate= "20220612",
+    todate= todate,
+    pagePath= "/contents/ETS/03/03010000/ETS03010000.jsp")
+
+otp = POST(gen_otp_url, query = gen_otp_data) %>% read_html() %>% html_text()
+  
+down_url = 'https://file.krx.co.kr/download.jspx'
+down_eprice = POST(down_url, query = list(code = otp), add_headers(referer = gen_otp_url)) %>% read_html(encoding = 'UTF-8') %>%  html_text() %>% read_csv()
+}
+
+```
+
+Emission Price Board
+================================================================================================
+
+Row {data-heigth=300}
+------------------------------------------------------------------------------------------------
+### Today's Emission Price {.value-box}
+```{r}
+todate1 <- today
+chart1 <- emission.price.down(todate1)
+nowprice <- chart1[1,6]
+
+valueBox(
+    value = nowprice,
+    icon = "fa-area-chart",
+    color = "primary")
+
+```
+
+### KAU22 Trading Price 
+```{r}
+chart1 <- emission.price.down(todate1)
+Price.date <- chart1$일자 %>% as.Date()
+Price.now <- chart1$시가
+volume.now <- chart1$거래량
+p = ggplot(chart1) +
+  geom_line(aes(x=Price.date,y=Price.now),group = 1 , col ='red') +
+  geom_point(aes(x=Price.date,y=Price.now), col ='red')
+ggplotly(p)
+
+``` 
+
+### KAU22 Trading Volume
+```{r}
+todate1 <- today
+chart1 <- emission.price.down(todate1)
+Price.date <- chart1$일자 %>% as.Date()
+Price.now <- chart1$시가
+volume.now <- chart1$거래량
+
+p2 <- ggplot(chart1) +
+  geom_bar(aes(x = Price.date, y = volume.now), stat = "identity", fill = "royalblue") +
+  geom_point(aes(x = Price.date, y = volume.now), col = 'royalblue') +
+  xlab("Date") + ylab("Trading volume")
+ggplotly(p2)
+```
+
+
+Row {data-heigth=300} 
+------------------------------------------------------------------------------------------------
+
+### Today's Trading Volume {.value-box}
+```{r}
+
+chart1 <- emission.price.down(todate1)
+nowvolume <- chart1[1,9]
+
+valueBox(
+    value = nowvolume,
+    icon = "fa-area-chart",color = 'royalblue')
+```
+
+### KAU22 Price Table
+
+```{r}
+todate1 <- today
+chart1 <- emission.price.down(todate1)
+ 
+DT::datatable(chart1, fillContainer = TRUE)
+
+```
+
+Row {data-heigth=400} 
+------------------------------------------------------------------------------------------------
+
+### The Status of Today's emission price
+```{r}
+todate1 <- today
+chart1 <- emission.price.down(todate1)
+nowprice <- chart1[1,6]
+peakvalue <- max(chart1$"고가")
+rating=nowprice/peakvalue*100
+rating.value <- rating %>% round(1) %>% as.numeric()
+
+gauge(rating.value, min = 0, max = 100, gaugeSectors(
+  success = c(70.0, 100.0), warning = c(40.0, 69.9), danger = c(0, 39.9)
+))
+```
+
+### News Articles: Emission Trading Scheme
+    
+```{r}
+keyword <- "배출권 거래제"
+query2 <- keyword
+tab2 <- naver.news.api.search(query2)
+tab2 <- cbind(query2, tab2) 
+tab2 <- tab2 %>% select(-originallink, -description)
+tab2 <- tab2 %>% 
+    mutate(pubDate = str_remove(pubDate, " \\d{2}:.+")) %>% 
+    mutate(title = str_replace_all(title, "&quot;", '"'))
+
+names(tab2) <- c("Search", "Title", "Link", "Date")
+
+df2 <- tab2 %>%
+  mutate(Title = cell_spec(Title, "html", link = Link, color="#062872")) %>% 
+  select(Date, Search, Title)
+
+df2 %>% 
+  kable(escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, width = "10em") %>%
+  column_spec(2, width = "10em") %>%
+  column_spec(3, width = "30em")
+```
+
+### News Articles: Emission Price
+    
+```{r}
+keyword <- "배출권 가격"
+query <- keyword
+tab <- naver.news.api.search(query)
+tab <- cbind(query, tab) 
+tab <- tab %>% select(-originallink, -description)
+tab <- tab %>% 
+    mutate(pubDate = str_remove(pubDate, " \\d{2}:.+")) %>% 
+    mutate(title = str_replace_all(title, "&quot;", '"'))
+
+names(tab) <- c("Search", "Title", "Link", "Date")
+
+df <- tab %>%
+  mutate(Title = cell_spec(Title, "html", link = Link, color="#062872")) %>% 
+  select(Date, Search, Title)
+
+df %>% 
+  kable(escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, width = "10em") %>%
+  column_spec(2, width = "10em") %>%
+  column_spec(3, width = "30em")
+```
+
+Certified Emission Board
+================================================================================================
+
+Row {data-heigth=300}
+------------------------------------------------------------------------------------------------
+### Number of Covered Entities in 2022 {.value-box}
+
+```{r}
+setwd("C:/Users/Minkyung Lee/Desktop/QAE/final")
+download.file("https://etrs.gir.go.kr/home/infoOpen/infoOpenList9Excel.do?pagerOffset=0&maxPageItems=10&maxIndexPages=10&searchKey=&searchValue=&menuId=20&condition.plPeriDgr=3&condition.infoOpenYn=Y&condition.pfYy=2022&csvYn=Y", "data.csv")
+emission_dt <- read.csv("data.csv", fileEncoding = "EUC-KR")
+numenti <- nrow(emission_dt)
+
+valueBox(
+  value = nowprice,
+  icon = "fa-area-chart",
+  color = "primary")
+
+```
+
+### Certified Emission by Sector
+
+```{r}
+setwd("C:/Users/Minkyung Lee/Desktop/QAE/final")
+download.file("https://etrs.gir.go.kr/home/infoOpen/infoOpenList9Excel.do?pagerOffset=0&maxPageItems=10&maxIndexPages=10&searchKey=&searchValue=&menuId=20&condition.plPeriDgr=3&condition.infoOpenYn=Y&condition.pfYy=2022&csvYn=Y", "data.csv")
+emission_dt <- read.csv("data.csv", fileEncoding = "EUC-KR")
+p1 <- plot_ly(emission_dt, labels = ~부문, values = ~인증배출량, type = "pie")
+p1
+
+
+```
+
+### News Articles: Net-Zero Scenario
+    
+```{r}
+keyword <- "탄소중립"
+query2 <- keyword
+tab2 <- naver.news.api.search(query2)
+tab2 <- cbind(query2, tab2) 
+tab2 <- tab2 %>% select(-originallink, -description)
+tab2 <- tab2 %>% 
+    mutate(pubDate = str_remove(pubDate, " \\d{2}:.+")) %>% 
+    mutate(title = str_replace_all(title, "&quot;", '"'))
+
+names(tab2) <- c("Search", "Title", "Link", "Date")
+
+df2 <- tab2 %>%
+  mutate(Title = cell_spec(Title, "html", link = Link, color="#062872")) %>% 
+  select(Date, Search, Title)
+
+df2 %>% 
+  kable(escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, width = "10em") %>%
+  column_spec(2, width = "10em") %>%
+  column_spec(3, width = "30em")
+```
+
+
+Row {data-heigth=300}
+------------------------------------------------------------------------------------------------
+
+### Total Certified Emission in 2022 {.value-box}
+
+```{r}
+setwd("C:/Users/Minkyung Lee/Desktop/QAE/final")
+download.file("https://etrs.gir.go.kr/home/infoOpen/infoOpenList9Excel.do?pagerOffset=0&maxPageItems=10&maxIndexPages=10&searchKey=&searchValue=&menuId=20&condition.plPeriDgr=3&condition.infoOpenYn=Y&condition.pfYy=2022&csvYn=Y", "data.csv")
+emission_dt <- read.csv("data.csv", fileEncoding = "EUC-KR")
+totalemit <- sum(emission_dt$인증배출량)
+
+valueBox(
+    value = totalemit,
+    icon = "fa-area-chart",
+    color = "primary")
+```
+
+### The Company emitting highest GHG emission {.value-box}
+
+```{r}
+setwd("C:/Users/Minkyung Lee/Desktop/QAE/final")
+download.file("https://etrs.gir.go.kr/home/infoOpen/infoOpenList9Excel.do?pagerOffset=0&maxPageItems=10&maxIndexPages=10&searchKey=&searchValue=&menuId=20&condition.plPeriDgr=3&condition.infoOpenYn=Y&condition.pfYy=2022&csvYn=Y", "data.csv")
+emission_dt <- read.csv("data.csv", fileEncoding = "EUC-KR")
+maxcomp <- emission_dt %>% filter(인증배출량 == max(인증배출량))
+company_name <- maxcomp$업체명
+
+valueBox(
+    value = company_name,
+    icon = "fa-area-chart",
+    color = "primary")
+
+```
+
+### Certified Emission Table
+
+```{r}
+setwd("C:/Users/Minkyung Lee/Desktop/QAE/final")
+download.file("https://etrs.gir.go.kr/home/infoOpen/infoOpenList9Excel.do?pagerOffset=0&maxPageItems=10&maxIndexPages=10&searchKey=&searchValue=&menuId=20&condition.plPeriDgr=3&condition.infoOpenYn=Y&condition.pfYy=2022&csvYn=Y", "data.csv")
+emission_dt <- read.csv("data.csv", fileEncoding = "EUC-KR")
+emission_dt <- emission_dt[,-1]
+ 
+DT::datatable(emission_dt, fillContainer = TRUE)
+
+```
+
+Research
+=====================================     
+
+Row 
+-------------------------------------
+### Potcasts: 듣다보면 똑똑해지는 라디오
+Potcasts Link: https://www.podbbang.com/channels/9213
+
+```{r}
+
+podbbang <- function(channel.id) {
+  
+  URL <- str_c("https://app-api6.podbbang.com/channels/", channel.id, "/episodes?offset=0&limit=20&sort=desc&episode_id=0")
+  txt <- readLines(URL, warn=FALSE)
+  
+  df <- fromJSON(txt)$data 
+  df1 <- df %>%
+    select(publishedAt, title)
+  df2 <- df$media %>% 
+    select(duration, url)
+  df <- cbind(df1, df2)
+  
+  names(df) <- c("date", "title", "duration", "link")
+  
+  df$date <- df$date %>% as.Date() %>% format("%y.%m.%d")
+  
+  df$title <-str_replace_all(df$title, "^[0-9]{2}/[0-9]{2} -", "") %>% str_trim()
+  
+  return(df)
+  
+}
+channel.id=9213 
+tbl <- podbbang(channel.id)
+df <- tbl %>%
+  mutate(title.link = cell_spec(title, "html", link = link, color="#062872")) %>%
+  select(date, title.link, duration)
+df %>% head(12) %>%
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, width = "6em") %>%
+  column_spec(2, width = "35em") %>%
+  column_spec(3, width = "6em")
+
+
+```
+
+### Youtube: 최재천의 아마존
+Youtube link: https://www.youtube.com/@choemazon/videos
+
+```{r, include=FALSE}
+URL <- "https://www.youtube.com/@choemazon/videos"
+remDr$navigate(URL)
+Sys.sleep(3)
+txt <- remDr$getPageSource()[[1]]
+res <- read_html(txt)
+title <- res %>%
+  html_nodes("#video-title") %>%
+  html_text() %>% 
+  str_remove("\n") %>% 
+  str_trim() %>% 
+  .[1:length(.)-1]
+link <- res %>%
+  html_nodes("#video-title-link") %>%
+  html_attr("href") %>%
+  .[1:length(.)-1] %>% 
+  str_c("https://www.youtube.com", .)
+date <- res %>% 
+  html_nodes("#metadata-line > span:nth-child(4)") %>% 
+  html_text()
+length <- res %>%
+  html_nodes("#overlays > ytd-thumbnail-overlay-time-status-renderer > span") %>%
+  html_text() 
+tbl <- cbind(date, title, length, link) %>%
+  as.data.frame(stringsAsFactors=FALSE)
+df <- tbl %>%
+  mutate(title.link = cell_spec(title, "html", link = link, color="#062872")) %>%
+  select(date, title.link, length)
+names(df) <- c("Date", "Title", "Length")
+```
+
+```{r}
+df %>% head(30) %>%
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, width = "6em") %>%
+  column_spec(2, width = "35em") %>%
+  column_spec(3, width = "6em")
+```
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+    
+### Ted talks: Energy
+Ted Link: https://www.ted.com/talks?sort=newest&topics%5B%5D=energy
+
+```{r}
+
+URL <- str_c("https://www.ted.com/talks?sort=newest&topics%5B%5D=energy")
+res <- read_html(URL)
+
+# speaker
+pattern <- ".talk-link__speaker"
+speaker <- res %>% 
+    html_nodes(pattern) %>%
+    html_text()
+
+# posted date
+pattern <- ".meta__val"
+posted <- res %>%
+    html_nodes(pattern)%>%
+    html_text() %>%
+    str_trim()
+
+  # duration
+pattern <- ".thumb__duration"
+duration <- res %>%
+    html_nodes(pattern) %>%
+    html_text()
+
+  # titles
+pattern <- ".f-w\\:700 .ga-link"
+title <- res %>%
+  html_nodes(pattern) %>%
+  html_text() %>% 
+    str_trim()
+
+  # link
+pattern <- ".f-w\\:700 .ga-link"
+link <- res %>%
+    html_nodes(pattern) %>% 
+    html_attr("href") %>% 
+    str_c("https://www.ted.com/", .)
+
+tbl2 <- cbind(posted, title, duration, link) %>% as.data.frame()
+dk <- tbl2 %>%
+  mutate(title.link = cell_spec(title, "html", link = link, color="#062872")) %>%
+  select(posted, title.link, duration)
+dk %>% head(25) %>%
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  column_spec(1, width = "6em") %>%
+  column_spec(2, width = "35em") %>%
+  column_spec(3, width = "6em")
+
+  
+```
+
+### Google Scholar: Emission Price 
+
+```{r, include=FALSE}
+Stack <- NULL
+pagelist <- c(0,10,20,30)
+for(i in pagelist){
+  URL <- str_c("https://scholar.google.com/scholar?start=",i,"&q=emission+price&hl=en&as_sdt=0,5&as_ylo=2019")
+  res <- read_html(URL)
+
+## title
+pattern <- ".gs_rt a"
+title2 <- res %>% 
+  html_nodes(pattern) %>% 
+  html_text()
+
+
+pattern <- ".gs_a"
+citation2 <- res %>% 
+  html_nodes(pattern) %>% 
+  html_text() %>% str_remove(" - .*") 
+
+
+  ##link
+pattern <- ".gs_rt a"
+link2 <- res %>% 
+  html_nodes(pattern) %>% 
+  html_attr("href")
+
+tbl3 <- cbind(title2, citation2, link2) %>% as.data.frame()
+
+Stack <- rbind(Stack, tbl3)
+  
+  Sys.sleep(1)
+  
+}
+
+```
+
+```{r}
+dk <- Stack %>%
+  mutate(title.link = cell_spec(title2, "html", link = link2, color="#062872")) %>%
+  select(title.link,citation2)
+
+dk %>% head(40) %>%
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("hover", "condensed")) %>%
+  column_spec(1, width = "20em") %>%
+  column_spec(2, width = "20em")
+```
+
